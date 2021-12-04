@@ -1,2 +1,5 @@
 /node_modules
 /dist
+model.nlp
+/config.json
+/model.nlp

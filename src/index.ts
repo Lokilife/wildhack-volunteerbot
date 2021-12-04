@@ -1,18 +1,17 @@
 import { Telegraf } from 'telegraf'
 import { dockStart } from '@nlpjs/basic'
+import { token } from '../config.json'
 
-async function getAnswer(question: string) {
-    const dock = await dockStart({ use: ['Basic']})
-    const nlp = dock.get('nlp')
-    await nlp.addCorpus('./corpus-ru.json')
-    await nlp.train()
-    const response = await nlp.process('ru', question)
-    return response
-}
+// Запускаем нейронку и скармливаем список фраз
+const dock = await dockStart({ use: ['Basic']})
+const nlp = dock.get('nlp')
+await nlp.addCorpus('./corpus-ru.json')
+await nlp.train()
 
-const bot = new Telegraf('5080406069:AAF5UH5TskSDZcxURFHG96U2tK75vmeh32M')
-bot.start((ctx) => {   
-    ctx.reply("Hello, World!")
+// Даже не пытайтесь использовать этот токен
+const bot = new Telegraf(token)
+bot.start((ctx) => {
+    ctx.reply("Приветствую. Я бот-помошник что ответит на ваши вопросы по поводу волонтёрства в Кроноцком заповеднике. Задавайте ваши вопросы!")
 })
 
 function randomChoice<T>(array: Array<T>): T {
@@ -20,14 +19,11 @@ function randomChoice<T>(array: Array<T>): T {
 }
 
 bot.on('text', async (ctx) => {
-    const answers = ((await getAnswer(ctx.message.text)).answers as Array<any>)
-    
-    const answerObject = randomChoice(answers)
+    const answer = randomChoice((await nlp.process('ru', ctx.message.text)).answers as Array<any>)
+                   ?.answer
 
-    if (!answerObject)
+    if (!answer)
         return ctx.reply('Увы, я не знаю ответа на ваш вопрос, попробуйте перефразировать, или обратитесь к ответственному за волонтёрство Кроноцкого заповедника.')
-    
-    const answer = answerObject.answer
     
     ctx.reply(answer)
 })
