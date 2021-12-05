@@ -7,17 +7,15 @@ import https from 'https'
 import fs from 'fs'
 import { Readable } from 'stream'
 import wav from 'wav'
+
 // Разбираемся с Vosk
-
-const MODEL_PATH = "model"
-
-if (!fs.existsSync(MODEL_PATH)) {
-    console.log("Please download the model from https://alphacephei.com/vosk/models and unpack as " + MODEL_PATH + " in the current folder.")
+if (!fs.existsSync('model')) {
+    console.log("Please download the model from https://alphacephei.com/vosk/models and unpack as \"model\" in the current folder.")
     process.exit()
 }
 
-vosk.setLogLevel(0);
-const model = new vosk.Model(MODEL_PATH);
+vosk.setLogLevel(0)
+const model = new vosk.Model('model')
 
 // wfReader.on('format', async ({ audioFormat, sampleRate, channels }) => {
 //     const rec = new vosk.Recognizer({model: model, sampleRate: sampleRate});
@@ -59,50 +57,40 @@ async function handleMessage(ctx, text) {
 
     if (!answer)
         ctx.reply('Увы, я не знаю ответа на ваш вопрос, попробуйте перефразировать, или обратитесь к ответственному за волонтёрство Кроноцкого заповедника.')
-    else {
+    else
         ctx.reply(answer)
-    }
 }
 
 bot.on('voice', async (ctx) => {
-    try {
-        ctx.telegram.getFileLink(ctx.message.voice.file_id).then( async (url) => {    
-            let file_name = ctx.message.voice.file_id + ".ogg";
-            let file = fs.createWriteStream(file_name);
-            let request = https.get(url, (response) => {
-                response.pipe(file);
-            });
-            await sleep(500);
-            execSync(`opusdec ${file_name} ./${file_name.replace("ogg", "wav")}`);
-            fs.unlink(file_name, (err) => {
+    const url = await ctx.telegram.getFileLink(ctx.message.voice.file_id)
+    let file_name = ctx.message.voice.file_id + '.ogg'
+    const file = fs.createWriteStream(file_name)
+    await new Promise(res => https.get(url, (response) => {
+        response.pipe(file)
+        res(response)
+    }))
+    execSync(`opusdec ${file_name} ./${file_name.replace('ogg', 'wav')}`)
+    fs.unlinkSync(file_name)
+    file_name = file_name.replace('ogg', 'wav')
+    const wfReader = new wav.Reader()
+    const wfReadable = new Readable().wrap(wfReader)
 
-            });
-            file_name = file_name.replace("ogg", "wav");
-            const wfReader = new wav.Reader();
-            const wfReadable = new Readable().wrap(wfReader);
+    wfReader.on('format', async ({ sampleRate }) => {
+        const rec = new vosk.Recognizer({model: model, sampleRate: sampleRate})
+        rec.setMaxAlternatives(10)
+        rec.setWords(true)
+        for await (const data of wfReadable)
+            rec.acceptWaveform(data)
+        let result = rec.finalResult(rec);
+        rec.free()
+        console.log(result['alternatives'][0]['text'])
 
-            wfReader.on('format', async ({ audioFormat, sampleRate, channels }) => {
-                const rec = new vosk.Recognizer({model: model, sampleRate: sampleRate});
-                rec.setMaxAlternatives(10);
-                rec.setWords(true);
-                for await (const data of wfReadable) {
-                    const end_of_speech = rec.acceptWaveform(data);
-                }
-                let result = rec.finalResult(rec);
-                rec.free();
-                
-                handleMessage(ctx, result['alternatives'][0]['text'])
-            });
-            
-            fs.createReadStream(file_name, {'highWaterMark': 4096}).pipe(wfReader);
-            fs.unlink(file_name, (err) => {
-
-            });
-            
-        });
-    } catch {
-
-    }
+        handleMessage(ctx, result['alternatives'][0]['text'])
+        
+        fs.unlinkSync(file_name)
+    })
+    
+    fs.createReadStream(file_name, {'highWaterMark': 4096}).pipe(wfReader)
 })
 
 function sleep(ms) {
